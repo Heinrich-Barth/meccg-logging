@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -27,7 +28,7 @@ type GameData struct {
 	Players  []PlayerData
 }
 
-var g_MapGames map[string][]byte = make(map[string][]byte)
+var g_MapGames map[string]GameData = make(map[string]GameData)
 
 func processGames(list []GameData) {
 
@@ -41,13 +42,13 @@ func processGames(list []GameData) {
 	}
 
 	for _, a := range list {
-		sJson, err := json.Marshal(a)
+		_, err := json.Marshal(a)
 		if err != nil {
 			log.Println(err)
 			continue
 		}
 
-		g_MapGames[a.Id] = sJson
+		g_MapGames[a.Id] = a
 	}
 
 	log.Println("Games processed", size)
@@ -86,13 +87,20 @@ func fetchActiveGames(url string) []GameData {
 	return gameData
 }
 
-func saveGame(id string, data []byte) bool {
+func getDateInfo(date string) string {
 
-	if data == nil || len(id) == 0 {
-		return false
+	var parts = strings.Split(date, " ")
+	if len(parts) < 4 {
+		return ""
 	}
 
-	var file = TARGET_DIRECTORY + "/" + id + ".json"
+	return parts[3] + "-" + parts[2] + "-" + parts[1]
+}
+
+func saveGame(game GameData) bool {
+
+	var filename = getDateInfo(game.Created) + "-" + game.Id + ".json"
+	var file = TARGET_DIRECTORY + "/" + filename
 
 	f, err := os.Create(file)
 	if err != nil {
@@ -103,13 +111,19 @@ func saveGame(id string, data []byte) bool {
 
 	defer f.Close()
 
+	data, err := json.Marshal(&game)
+	if err != nil {
+		log.Println(err)
+		return false
+	}
+
 	_, errW := f.Write(data)
 	if errW != nil {
 		log.Println(errW)
 		return false
 	}
 
-	log.Println("Game saved:", id)
+	log.Println("Game saved:", filename)
 	return true
 }
 
@@ -122,7 +136,7 @@ func saveMap() {
 
 	ids := []string{}
 	for id, data := range g_MapGames {
-		if saveGame(id, data) {
+		if saveGame(data) {
 			ids = append(ids, id)
 		}
 	}
@@ -131,6 +145,24 @@ func saveMap() {
 		delete(g_MapGames, id)
 		log.Println("Removed game from map", id)
 	}
+}
+
+func listGameFiles() []string {
+
+	files, err := os.ReadDir(TARGET_DIRECTORY)
+	if err != nil {
+		log.Println(err)
+		return nil
+	}
+
+	var list []string
+	for _, file := range files {
+		if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
+			list = append(list, file.Name())
+		}
+	}
+
+	return list
 }
 
 func scheduledWork(url string, waitInMinutes int32) {
@@ -151,7 +183,6 @@ func scheduledWork(url string, waitInMinutes int32) {
 
 	log.Printf("Fetching games every %dmins", waitInMinutes)
 
-	var count = 0
 	var list []GameData
 	var wait = time.Duration(waitInMinutes) * time.Minute
 
@@ -159,12 +190,7 @@ func scheduledWork(url string, waitInMinutes int32) {
 
 		list = fetchActiveGames(url)
 		processGames(list)
-
-		count++
-		if count == 5 {
-			count = 0
-			saveMap()
-		}
+		saveMap()
 
 		time.Sleep(wait)
 	}

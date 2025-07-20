@@ -43,6 +43,7 @@ func main() {
 
 	URL := os.Getenv("URL")
 	go scheduledWork(URL, 5)
+	go initServer()
 
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
